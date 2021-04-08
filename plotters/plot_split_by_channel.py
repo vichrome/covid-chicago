@@ -25,6 +25,14 @@ def parse_args():
         help="Name of simulation experiment"
     )
     parser.add_argument(
+        "-g",
+        "--channelGrp",
+        type=str,
+        choices=['symp','infect','hospCrit','Vaccinated'], #'bvariant'
+        help="Name of channels to compare",
+        default="Vaccinated"
+    )
+    parser.add_argument(
         "-loc",
         "--Location",
         type=str,
@@ -49,8 +57,17 @@ def plot_on_fig(df, channels, axes, color, label,logscale=False, ymax=10000) :
                         color=color, linewidth=0, alpha=0.2)
         ax.fill_between(mdf['date'].values, mdf['CI_25'], mdf['CI_75'],
                         color=color, linewidth=0, alpha=0.4)
+
+        if channel=="vaccinated_cumul":
+            if grp =='All':
+                ems_nr= 0
+            else:
+                ems_nr=int(grp.replace('EMS-', ''))
+            adf = load_vacc_df(ems_nr=ems_nr)
+            ax.plot(adf['date'], adf['persons_first_vaccinated'], 'o', color='#303030', linewidth=0, ms=1.1)
+
         ax.set_title(' '.join(channeltitle.split('_')), y=0.985)
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b\n%y'))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%d\n%b'))
         if logscale :
             ax.set_ylim(0.1, ymax)
             ax.set_yscale('log')
@@ -72,8 +89,8 @@ def get_channels(channelGrp):
                       'crit_det_cumul']}
 
     nchannels_Vacc = {
-        'channels1': ['vaccinated_cumul', 'asymp_det', 'hosp_det', 'crit_det', 'deaths_det', 'recovered_det'],
-        'channels2': ['vaccinated_cumul', 'asymp_det_V', 'hosp_det_V', 'crit_det_V', 'deaths_det_V', 'recovered_det_V']}
+        'channels1': ['vaccinated_cumul', 'new_infected', 'new_asymp_det', 'crit_det', 'new_deaths', 'new_recovered'],
+        'channels2': ['vaccinated_cumul', 'new_infected_V', 'new_asymp_det_V', 'crit_det_V', 'new_deaths_V', 'new_recovered_V']}
 
     nchannels_B = {
         'channels1': ['B_prev','new_infected',  'new_hosp',  'new_crit', 'new_deaths', 'new_recovered'],
@@ -107,15 +124,24 @@ def compare_channels(channelGrp,grp="All",logscale=False):
 
     nchannels, label0, label1 = get_channels(channelGrp)
 
-    df = load_sim_data(exp_name, region_suffix=f'_{grp}', fname='trajectoriesDat.csv', add_incidence=True)
+    trajectories_cols = pd.read_csv(os.path.join(sim_output_path, 'trajectoriesDat.csv'), index_col=0, nrows=0).columns.tolist()
+    cols = list(set([ch.replace('new_','').replace('_V','') for ch in nchannels['channels1']+nchannels['channels2']]))
+    column_list=[]
+    for col in cols:
+        column_list = column_list + [x for x in trajectories_cols if x.startswith(col)]
+
+    df = load_sim_data(exp_name, region_suffix=f'_{grp}',fname='trajectoriesDat.csv',column_list=column_list, add_incidence=True)
     df = df[df['date'].between(pd.Timestamp(first_day), pd.Timestamp(last_day))]
     if channelGrp =='bvariant':
         df['B_prev'] = df['infected_B'] / df['infected']
 
     palette = sns.color_palette('Set1', len(nchannels))
-    fig = plt.figure(figsize=(14, 7))
+    fig = plt.figure(figsize=(12, 6))
     fig.subplots_adjust(right=0.97, left=0.05, hspace=0.3, wspace=0.2, top=0.92, bottom=0.08)
-    fig.suptitle(x=0.5, y=0.99, t=grp)
+    if channelGrp == "Vaccinated":
+        fig.suptitle(x=0.5, y=0.99, t=f'{grp} - based on 1st dose vaccine coverage shifted by 21 days')
+    else:
+        fig.suptitle(x=0.5, y=0.99, t=grp)
     axes = [fig.add_subplot(2, 3, x + 1) for x in range(len(nchannels['channels1']))]
 
     for d, key in enumerate(nchannels.keys()):
@@ -127,8 +153,8 @@ def compare_channels(channelGrp,grp="All",logscale=False):
                 label = label0
             if d == 1:
                 label = label1
-
         plot_on_fig(df, channels, axes, color=palette[d], label=label,logscale=logscale)
+
     axes[-1].legend()
 
     plot_name = f'{channelGrp}_comparison_{grp}'
@@ -136,19 +162,22 @@ def compare_channels(channelGrp,grp="All",logscale=False):
         plot_name = plot_name + "_log"
 
     plt.savefig(os.path.join(plot_path, plot_name + '.png'))
-    # plt.savefig(os.path.join(plot_path,'pdf', plot_name + '.pdf'), format='PDF')
+    plt.savefig(os.path.join(plot_path,'pdf', plot_name + '.pdf'), format='PDF')
     plt.show()
 
 if __name__ == '__main__' :
 
     args = parse_args()
     stem = args.stem
+    channelGrp = args.channelGrp
     Location = args.Location
 
     datapath, projectpath, wdir, exe_dir, git_dir = load_box_paths(Location=Location)
 
-    first_day = pd.Timestamp.today()- pd.Timedelta(30,'days')
-    last_day = pd.Timestamp.today()+ pd.Timedelta(210,'days')
+    first_day = pd.Timestamp.today()- pd.Timedelta(60,'days')
+    last_day = pd.Timestamp.today()+ pd.Timedelta(150,'days')
+    if channelGrp == 'Vaccinated':
+        first_day = pd.Timestamp('2021-01-01')
 
     exp_names = [x for x in os.listdir(os.path.join(wdir, 'simulation_output')) if stem in x]
     for exp_name in exp_names:
@@ -156,12 +185,7 @@ if __name__ == '__main__' :
         plot_path = os.path.join(sim_output_path, '_plots')
         grp_list, grp_suffix, grp_numbers = get_group_names(exp_path = sim_output_path)
 
-        #compare_channels(channelGrp= "symp")
-        #compare_channels(channelGrp= "infect")
-        #compare_channels(channelGrp= "hospCrit")
-        #compare_channels(channelGrp= "Vaccinated")
-
         for grp in grp_list:
             print(f'Process started for {grp}')
-            compare_channels(channelGrp= "bvariant",grp=grp)
-            #compare_channels(channelGrp="bvariant", grp=grp,logscale=True)
+            compare_channels(channelGrp=channelGrp, grp=grp)
+            #compare_channels(channelGrp=channelGrp, grp=grp,logscale=True)

@@ -9,10 +9,7 @@ import matplotlib as mpl
 import numpy as np
 import pandas as pd
 import yaml
-import yamlordereddictloader
 
-from dotenv import load_dotenv
-load_dotenv()
 
 from load_paths import load_box_paths
 from simulation_helpers import (DateToTimestep, cleanup, write_emodl,
@@ -391,7 +388,11 @@ def generateScenarios(simulation_population, Kivalues, duration, monitoring_samp
 
 
 def get_experiment_config(experiment_config_file):
-    config = yaml.load(open(os.path.join('./experiment_configs', args.masterconfig)), Loader=yamlordereddictloader.Loader)
+    try:
+        import yamlordereddictloader
+        config = yaml.load(open(os.path.join('./experiment_configs', args.masterconfig)), Loader=yamlordereddictloader.Loader)
+    except:
+        config = yaml.load(open(os.path.join('./experiment_configs', args.masterconfig)))
     yaml_file = open(os.path.join('./experiment_configs',experiment_config_file))
     expt_config = yaml.safe_load(yaml_file)
     for param_type, updated_params in expt_config.items():
@@ -400,7 +401,6 @@ def get_experiment_config(experiment_config_file):
         if updated_params:
             config[param_type].update(updated_params)
     return config
-
 
 def get_experiment_setup_parameters(experiment_config):
     return experiment_config['experiment_setup_parameters']
@@ -639,10 +639,9 @@ if __name__ == '__main__':
         subregion_label = args.subregion[0]
     else:
         subregion = args.subregion
-        if len(subregion) == 11:
-            subregion_label = 'all'
-        if len(subregion) > 1 & len(subregion) < 11:
-            subregion_label = 'sub'
+        subregion_label = ''
+        if len(subregion) < 11:
+            subregion_label = '_sub'
 
     if emodl_template is None:
         log.debug(f"Running scenarios for {model} and {scenario}")
@@ -687,7 +686,7 @@ if __name__ == '__main__':
         exp_name = f"{today.strftime('%Y%m%d')}_{region}_{args.name_suffix}"
     else:
         if model =='locale':
-            exp_name = f"{today.strftime('%Y%m%d')}_{region}_{model}_{subregion_label}_{args.name_suffix}_{scenario}"
+            exp_name = f"{today.strftime('%Y%m%d')}_{region}_{model}{subregion_label}_{args.name_suffix}_{scenario}"
         else:
             exp_name = f"{today.strftime('%Y%m%d')}_{region}_{model}_{args.name_suffix}_{scenario}"
         if args.fit_params[0] != None:
